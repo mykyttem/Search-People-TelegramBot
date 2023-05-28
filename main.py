@@ -1,4 +1,6 @@
 from aiogram import types
+from aiogram.dispatcher.filters import Text
+
 from config import dp
 
 # start
@@ -12,3 +14,11 @@ async def send_welcome(message: types.Message):
     ]
     keyboard = types.ReplyKeyboardMarkup(keyboard=keyboard_btn, resize_keyboard=True)
     await message.answer("Оберіть опцію", reply_markup=keyboard)
+
+
+# button back menu
+@dp.message_handler(Text(equals="◀ Назад"))
+async def see_profile(message: types.Message):
+
+    await send_welcome(message)
+    await message.reply("Головне меню")
