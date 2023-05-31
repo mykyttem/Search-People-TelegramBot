@@ -1,25 +1,12 @@
+import os
 from aiogram import types
 
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher.filters import Text
 
-from config import dp, con, cur
+from config import dp, con, cur, bot
 from main import send_welcome
-
-
-# See profiles other users (questionnaires)
-@dp.message_handler(Text(equals="Подивитися профілі"))
-async def see_profile(message: types.Message):
-    # buttons
-    keyboard_btn = [
-        [types.KeyboardButton(text='◀ Назад')]
-    ]
-    keyboard = types.ReplyKeyboardMarkup(keyboard=keyboard_btn, resize_keyboard=True)
-
-
-    await message.reply("Дивимося анкети", reply_markup=keyboard)
-
 
 # fill out the profile
 """
@@ -35,6 +22,7 @@ class ProfileFormState(StatesGroup):
     age = State()
     location = State()
     description = State()
+    photo_path = State()
 
 
 # fill in step by step
@@ -79,9 +67,8 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
 
         except ValueError:
             await message.reply('Це не число')
-            await fill_profile(message)
+            return
            
-
         await ProfileFormState.location.set()
         await message.reply(f"Звідки ви?")
 
@@ -90,6 +77,28 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
     async def location_user(message: types.Message, state: FSMContext):
         location = message.text
         await state.update_data(location=location)
+
+        await ProfileFormState.photo_path.set()
+        await message.reply(f"Добавьте Фото")
+
+
+    @dp.message_handler(content_types=types.ContentTypes.PHOTO | types.ContentTypes.DOCUMENT, state=ProfileFormState.photo_path)
+    async def photo_user(message: types.Message, state: FSMContext):
+        if message.photo:
+            # Get photo (of the highest quality)
+            photo = message.photo[-1]  
+        elif message.document:
+            photo = message.document
+        else:
+            await message.reply("Будь ласка, надішліть фотографію або документ зображення")
+            return
+
+        photo_id = photo.file_id
+
+        # save photo and path
+        photo_path = os.path.join('photos', f'{photo_id}.jpg')
+        await photo.download(photo_path)
+        await state.update_data(photo_path=photo_path)
 
         await ProfileFormState.description.set()
         await message.reply(f"Введіть опис профілю")
@@ -107,12 +116,12 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
         ]
         keyboard = types.ReplyKeyboardMarkup(keyboard=keyboard_btn, resize_keyboard=True)
 
-
         # Get all data from state
         global dict_user_profile
         data_user_profile = await state.get_data()
 
         dict_user_profile = {
+            'photo_path': data_user_profile.get('photo_path'),
             'name': data_user_profile.get('name'),
             'sex': data_user_profile.get('sex'),
             'age': data_user_profile.get('age'),
@@ -130,12 +139,15 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
             Опис: {dict_user_profile['description']}
         """
 
-        await message.reply(f'Вірно заповнена анкета?\n {reply_text_data}', reply_markup=keyboard)
+        await bot.send_message(message.from_user.id, 'Вірно заповнена анкета?')
 
+        photo_path = os.path.join(os.getcwd(), dict_user_profile['photo_path'])
+        await bot.send_photo(message.from_user.id, photo=open(photo_path, 'rb'), caption=reply_text_data, reply_markup=keyboard)
 
         # If "No" - Fill again
         @dp.message_handler(Text(equals='Ні, повернутися в меню'))
         async def fill_again(message: types.Message):
+            os.remove(dict_user_profile['photo_path'])
             await send_welcome(message)
 
 
@@ -152,14 +164,15 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
 
                 # if user create profile
                 cur.execute(""" INSERT INTO users 
-                    (id, name, sex, age, location, description)values(?, ?, ?, ?, ?, ?);""", 
+                    (id, name, sex, age, location, description, photo_path)values(?, ?, ?, ?, ?, ?, ?);""", 
                     [
                         user_id, 
                         dict_user_profile['name'], 
                         dict_user_profile['sex'], 
                         dict_user_profile['age'], 
                         dict_user_profile['location'], 
-                        dict_user_profile['description']
+                        dict_user_profile['description'],
+                        dict_user_profile['photo_path']
                     ]
                 )
                 con.commit()
@@ -169,16 +182,18 @@ async def block_steps_fill(message: types.Message, state: FSMContext):
             else:
 
                 # if user update profile
-                cur.execute(f""" UPDATE users SET name = ?, sex = ?, age = ?, location = ?, description = ? WHERE id = {user_id}""", 
+                cur.execute(f""" UPDATE users SET name = ?, sex = ?, age = ?, location = ?, description = ?, photo_path = ? WHERE id = {user_id}""", 
                     (
                         dict_user_profile['name'], 
                         dict_user_profile['sex'], 
                         dict_user_profile['age'], 
                         dict_user_profile['location'], 
-                        dict_user_profile['description']
+                        dict_user_profile['description'],
+                        dict_user_profile['photo_path']
                     )
                 )
                 con.commit()
+                os.remove(dict_user_profile['photo_path'])
                 await message.reply('Дані оновлені')
                 await send_welcome(message)
 
@@ -205,7 +220,7 @@ async def checking_my_profile(message: types.Message):
     else:
         # formating in text
         info_profile = "" 
-        for i in str(get_profile).split()[1::]:
+        for i in str(get_profile).split()[:-1][1:]:
             info_profile += f'{i}\n'.replace("'", '').replace(')', '')
 
 
@@ -217,18 +232,25 @@ async def checking_my_profile(message: types.Message):
         ]
         keyboard = types.ReplyKeyboardMarkup(keyboard=keyboard_btn, resize_keyboard=True)
         
-
-        await message.reply(f'{info_profile}', reply_markup=keyboard)   
-
+        path_photo = str(get_profile).replace(')', '').replace("'", '').split()[-1::]
+        await bot.send_photo(user_id, 
+                            photo=open(str(path_photo).replace('[', '').replace(']', '').replace("'", ''), 'rb'), 
+                            caption=info_profile, reply_markup=keyboard
+        )
+    
 
 @dp.message_handler(Text(equals='Видалити мій профіль'))
 async def delete_my_profile(message: types.Message):
 
     # Get profile for user
     user_id = message.from_user.id
+    cur.execute(f" SELECT photo_path FROM users WHERE id = {user_id} ")
+
+    path_photo_user = cur.fetchone()
+    os.remove(str(path_photo_user).replace('(', '').replace(')', '').replace("'", '').replace(',', ''))
+
     cur.execute(f" DELETE FROM users WHERE id = {user_id} ")
     con.commit()
-  
 
     await message.reply('Ваш профіль видалений')
     await send_welcome(message)

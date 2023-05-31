@@ -25,5 +25,6 @@ cur.execute("""CREATE TABLE IF NOT EXISTS users(
     sex TEXT,
     age INTEGER,
     location TEXT,
-    description TEXT
+    description TEXT,
+    photo_path TEXT
 )""")
