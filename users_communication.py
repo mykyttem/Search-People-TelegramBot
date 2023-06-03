@@ -4,6 +4,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher import FSMContext
 
 from config import dp, cur, bot
+from main import translation, user_language
 
 """
 See profiles users
@@ -14,14 +15,19 @@ Choice doing button for communcations
 keyboard_btn = [
         [types.KeyboardButton(text='👌')],
         [types.KeyboardButton(text='✉')],
-        [types.KeyboardButton(text='⏩ Наступне')],
-        [types.KeyboardButton(text='◀ Назад')]
+        [types.KeyboardButton(text='⏩')],
+        [types.KeyboardButton(text='◀')]
     ]
 
 keyboard = types.ReplyKeyboardMarkup(keyboard=keyboard_btn, resize_keyboard=True)
 
 
 async def random_profile(message: types.Message):
+    # language
+    global language
+    id_user = message.from_user.id
+    language = user_language(id_user)
+
     # random search user profile and except mine
     user_id = message.from_user.id
     cur.execute(f" SELECT * FROM users WHERE id <> {user_id} ORDER BY RANDOM() LIMIT 1")
@@ -43,13 +49,13 @@ async def random_profile(message: types.Message):
 
 
 # See profiles other users (questionnaires)
-@dp.message_handler(Text(equals='Подивитися профілі'))
+@dp.message_handler(Text(equals=['Подивитися профілі', 'View profiles']))
 async def see_profile(message: types.Message):
     await random_profile(message)
 
 
 # Next profile
-@dp.message_handler(Text(equals='⏩ Наступне'))
+@dp.message_handler(Text(equals=['⏩', '⏩']))
 async def next(message: types.Message):
     # again seeing profile
     await random_profile(message)
@@ -67,17 +73,21 @@ async def like(message: types.Message):
     user_id = message.from_user.id
 
     cur.execute(f" SELECT * FROM users WHERE id = {user_id} ")
-    get_profile = cur.fetchone()
+    get_my_profile = cur.fetchone()
 
     # formating in text
     info_profile = "" 
-    for i in str(get_profile).split()[:-1][1:]:
+    for i in str(get_my_profile).split()[:-1][1:]:
         info_profile += f'{i}\n'.replace("'", '').replace(')', '')
-
+    
     # to inform the user that someone liked or liked
     id_like_user = str(profiles).split()[0].replace('(', '').replace(',', '')
-    await bot.send_message(id_like_user, f"Ви сподобались користувачу\n {info_profile}\n Його nickname - @{message.from_user.username}")
-   
+    path_photo = str(get_my_profile).replace(')', '').replace("'", '').split()[-1::]
+
+    await bot.send_photo(id_like_user,
+                          photo=open(str(path_photo).replace('[', '').replace(']', '').replace("'", ''), 'rb'), 
+                          caption=f"👌\n {info_profile}\n nickname - @{message.from_user.username}")
+    
     await random_profile(message)
 
 # save message
@@ -88,7 +98,7 @@ class SendMessage(StatesGroup):
 @dp.message_handler(Text(equals='✉'))
 async def message(message: types.Message):
     
-    await message.reply('Ведіть текст письма')
+    await message.reply(translation('Ведіть текст письма', language))
     await SendMessage.send_message.set()
 
 
@@ -101,17 +111,24 @@ async def send_message(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
 
     cur.execute(f" SELECT * FROM users WHERE id = {user_id} ")
-    get_profile = cur.fetchone()
+    get_my_profile = cur.fetchone()
 
     # formating in text
     info_profile = "" 
-    for i in str(get_profile).split()[:-1][1:]:
+    for i in str(get_my_profile).split()[:-1][1:]:
         info_profile += f'{i}\n'.replace("'", '').replace(')', '')
 
    
     # to inform the user that someone message
     id_message_user = str(profiles).split()[0].replace('(', '').replace(',', '')
-    await bot.send_message(id_message_user, f"Вам письмо від\n {info_profile}\n Його nickname - @{message.from_user.username}\nПисьмо 👇\n {message_text}")
-    await state.finish()
+    path_photo = str(get_my_profile).replace(')', '').replace("'", '').split()[-1::]
     
+    await bot.send_photo(id_message_user,
+                          photo=open(str(path_photo).replace('[', '').replace(']', '').replace("'", ''), 'rb'), 
+                          caption=f"""📧\n 
+                           {info_profile}\n 
+                           nickname - @{message.from_user.username}\n
+                           '✉' 👇\n {message_text}\n""")
+
+    await state.finish()
     await random_profile(message)

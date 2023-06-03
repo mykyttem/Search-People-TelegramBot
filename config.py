@@ -19,6 +19,7 @@ con = sqlite3.connect("users.db")
 cur = con.cursor()
 
 # create TABLES
+# profile user
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
     id INTEGER,
     name TEXT,
@@ -27,4 +28,11 @@ cur.execute("""CREATE TABLE IF NOT EXISTS users(
     location TEXT,
     description TEXT,
     photo_path TEXT
+)""")
+
+
+# choise language user
+cur.execute("""CREATE TABLE IF NOT EXISTS language_users(
+    id_user INTEGER PRIMARY KEY,
+    language TEXT
 )""")
